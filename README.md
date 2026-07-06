@@ -2,82 +2,34 @@
 
 Terminal usage HUD for Codex.
 
-`codex-hub` runs Codex inside a PTY and adds one extra usage row under Codex's
-native footer. It works in normal Windows, macOS, and Linux terminals.
+`codex-hub` runs Codex inside a PTY and draws one extra usage row under
+Codex's native footer. It works in normal Windows, macOS, and Linux terminals.
 
 ```text
 gpt-5.5 default | Context 96% left | ~/project
 Usage | 66% reset 2h15m | 12% reset 2d10h | session 9.5M
 ```
 
-## Why
+Codex Hub does not patch Codex and does not make network requests while
+rendering the HUD. It reads local Codex session JSONL files, finds the latest
+`token_count` event, and renders account usage plus session token totals.
 
-Codex already has a built-in TUI status line for model, context, and directory.
-It does not currently expose a third-party hook for custom usage metrics.
+## Quick Start
 
-Codex Hub fills that gap without patching Codex:
-
-- Reads local Codex session JSONL files.
-- Finds the latest `token_count` event.
-- Renders account usage and session token totals in the terminal.
-- Optionally installs a `codex` shim so users keep typing `codex`.
-
-No network request is used for HUD rendering.
-
-## Install
-
-Install from GitHub:
+Requirements: Node.js 20+, npm, and an installed Codex CLI.
 
 ```powershell
 npm install -g github:Feng-Y-28/Codex_hub
-```
-
-Run Codex through the wrapper:
-
-```powershell
 codex-hub
 ```
 
-Pass Codex arguments after `--`:
-
-```powershell
-codex-hub -- --model gpt-5.5
-codex-hub -- --version
-```
-
-From a local clone:
-
-```powershell
-git clone https://github.com/Feng-Y-28/Codex_hub.git
-cd Codex_hub
-npm install
-npm link
-codex-hub
-```
-
-## Launch With `codex`
-
-If you want the HUD without typing `codex-hub`, install the optional command
-shim:
+To keep launching Codex with `codex`, install the optional shim:
 
 ```powershell
 codex-hub-install
 ```
 
-After confirmation, the installer creates a small `codex` launcher:
-
-```text
-~/.codex-hub/bin/codex
-```
-
-On Windows:
-
-```text
-%USERPROFILE%\.codex-hub\bin\codex.cmd
-```
-
-The shim directory is placed before the original Codex command in user PATH.
-Open a new terminal and run:
+Open a new terminal, then run:
 
 ```powershell
 codex
@@ -91,10 +43,38 @@ codex -> codex-hub -> original Codex executable
 
 The original Codex binary is not modified.
 
-Uninstall the shim:
+## Usage
+
+Run Codex through the wrapper:
 
 ```powershell
-codex-hub-install --uninstall
+codex-hub
+```
+
+Pass Codex arguments directly, or use `--` to separate wrapper options from
+Codex options:
+
+```powershell
+codex-hub --version
+codex-hub -- --model gpt-5.5
+```
+
+Wrapper options:
+
+```powershell
+codex-hub --codex-home "$HOME\.codex" --interval 10
+```
+
+## Shim
+
+`codex-hub-install` creates a small `codex` launcher and places its directory
+before the original Codex command in the user PATH for new terminals.
+
+Shim location:
+
+```text
+~/.codex-hub/bin/codex
+%USERPROFILE%\.codex-hub\bin\codex.cmd
 ```
 
 If Codex is not discoverable on PATH:
@@ -103,46 +83,67 @@ If Codex is not discoverable on PATH:
 codex-hub-install --codex-bin "C:\path\to\codex.cmd"
 ```
 
-Advanced/manual install:
+Manual install without changing PATH:
 
 ```powershell
 codex-hub-install --no-path --bin-dir "$HOME\.codex-hub\bin"
 ```
 
+Uninstall:
+
+```powershell
+codex-hub-install --uninstall
+```
+
 ## Configuration
 
-If `codex` is not on PATH, point the wrapper at the real executable:
+| Variable | Purpose |
+| --- | --- |
+| `CODEX_BIN` | Codex executable launched by `codex-hub`. |
+| `CODEX_HOME` | Codex home containing `sessions/`. |
+| `CODEX_HUB_ORIGINAL_CODEX` | Internal shim target set by `codex-hub-install`. |
+
+Examples:
 
 ```powershell
 $env:CODEX_BIN="C:\path\to\codex.cmd"
-codex-hub
-```
-
-If your Codex sessions are not under the default home:
-
-```powershell
 $env:CODEX_HOME="$HOME\.codex"
 codex-hub
 ```
 
-CLI options:
+## Data Source
 
-```powershell
-codex-hub --codex-home "$HOME\.codex" --interval 10
+Codex Hub reads the newest `.jsonl` session file under:
+
+```text
+%CODEX_HOME%\sessions
+%USERPROFILE%\.codex\sessions
 ```
 
-Environment variables:
+It uses fields from the latest `token_count` event:
 
-| Variable | Purpose |
+| Field | HUD usage |
 | --- | --- |
-| `CODEX_BIN` | Original Codex command used by `codex-hub`. |
-| `CODEX_HUB_ORIGINAL_CODEX` | Internal shim target used by `codex-hub-install`. |
-| `CODEX_HOME` | Codex home containing `sessions/`. |
+| `payload.rate_limits.primary.used_percent` | First account usage percentage, usually the short window. |
+| `payload.rate_limits.primary.resets_at` | First reset timer. |
+| `payload.rate_limits.secondary.used_percent` | Second account usage percentage, usually the long window. |
+| `payload.rate_limits.secondary.resets_at` | Second reset timer. |
+| `payload.info.total_token_usage.total_tokens` | Session token total. |
 
-## Codex Plugin
+## Advanced
+
+Install from a local clone:
+
+```powershell
+git clone https://github.com/Feng-Y-28/Codex_hub.git
+cd Codex_hub
+npm install
+npm link
+codex-hub
+```
 
 This repository also ships a Codex plugin skill for one-off checks from inside
-Codex:
+Codex. The plugin is not the terminal overlay.
 
 ```powershell
 $env:CODEX_HOME="$HOME\.codex"
@@ -155,11 +156,6 @@ Then ask Codex:
 ```text
 Use $codex-hud:codex-hud to show my current context and usage.
 ```
-
-The plugin skill is not the terminal overlay. For the integrated bottom row,
-install the CLI wrapper and optionally run `codex-hub-install`.
-
-## Built-In Status Line
 
 Codex's built-in `/statusline` can show native Codex fields. This helper
 configures that native footer:
@@ -178,36 +174,7 @@ status_line = ["model-with-reasoning", "context-remaining", "current-dir"]
 Current Codex does not support injecting Codex Hub's account usage percentages
 into `/statusline`. Codex Hub draws a second terminal row instead.
 
-## Data Source
-
-Codex Hub reads the newest session file under:
-
-```text
-%CODEX_HOME%\sessions
-```
-
-or:
-
-```text
-%USERPROFILE%\.codex\sessions
-```
-
-It uses fields from the latest `token_count` event:
-
-| Field | HUD usage |
-| --- | --- |
-| `rate_limits.primary.used_percent` | First account usage percentage, usually the short window. |
-| `rate_limits.primary.resets_at` | First reset timer. |
-| `rate_limits.secondary.used_percent` | Second account usage percentage, usually the long window. |
-| `rate_limits.secondary.resets_at` | Second reset timer. |
-| `total_token_usage.total_tokens` | Session token total. |
-
 ## Troubleshooting
-
-`codex-hub: Cannot create process, error code: 193`
-
-Update to the latest version. Windows must resolve `codex.cmd`/`codex.exe`
-before the extensionless npm shell shim.
 
 `codex` still starts without the HUD
 
@@ -230,6 +197,16 @@ Codex Hub has not found a session JSONL file yet. Start Codex once, or set:
 ```powershell
 $env:CODEX_HOME="$HOME\.codex"
 ```
+
+`codex-hub: Cannot create process, error code: 193`
+
+Update to the latest version. Windows must resolve `codex.cmd` or `codex.exe`
+before the extensionless npm shell shim.
+
+`npm install` fails while installing `node-pty`
+
+Use Node.js 20 or newer. If the package manager cannot use a prebuild for your
+platform, install the native build tools required by `node-pty`.
 
 ## Development
 
