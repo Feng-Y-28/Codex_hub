@@ -115,6 +115,12 @@ async function writeShim({ binDir, originalCodex }) {
       `"${process.execPath}" "${CODEX_HUB_ENTRY}" -- %*`
     ].join("\r\n");
     await fs.promises.writeFile(path.join(binDir, "codex.cmd"), `${cmd}\r\n`, "utf8");
+    const ps1 = [
+      `$env:CODEX_HUB_ORIGINAL_CODEX = ${psQuote(originalCodex)}`,
+      `& ${psQuote(process.execPath)} ${psQuote(CODEX_HUB_ENTRY)} -- @args`,
+      "exit $LASTEXITCODE"
+    ].join("\r\n");
+    await fs.promises.writeFile(path.join(binDir, "codex.ps1"), `${ps1}\r\n`, "utf8");
     return;
   }
 
@@ -136,7 +142,7 @@ async function uninstall({ binDir, yes }) {
     }
   }
 
-  for (const name of ["codex", "codex.cmd"]) {
+  for (const name of ["codex", "codex.cmd", "codex.ps1"]) {
     await fs.promises.rm(path.join(binDir, name), { force: true }).catch(() => {});
   }
   removePath(binDir);
@@ -293,6 +299,10 @@ function samePath(left, right) {
 
 function shQuote(value) {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
+
+function psQuote(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
 }
 
 function escapeRegExp(value) {

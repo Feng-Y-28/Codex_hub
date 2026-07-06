@@ -7,6 +7,9 @@ import { getHudLine } from "./hud.js";
 const ESC = "\x1b";
 const HIDE_CURSOR = `${ESC}[?25l`;
 const SHOW_CURSOR = `${ESC}[?25h`;
+const DISABLE_BRACKETED_PASTE = `${ESC}[?2004l`;
+const BRACKETED_PASTE_START = `${ESC}[200~`;
+const BRACKETED_PASTE_END = `${ESC}[201~`;
 const SAVE_CURSOR = `${ESC}7`;
 const RESTORE_CURSOR = `${ESC}8`;
 
@@ -34,7 +37,12 @@ export async function run() {
   let pollTimer = null;
 
   setupRawInput(child);
-  process.stdout.write(HIDE_CURSOR);
+  process.stdout.write(`${DISABLE_BRACKETED_PASTE}${HIDE_CURSOR}`);
+  if (process.stdout.isTTY) {
+    // Confine scrolling to the child's rows so the HUD row at the bottom
+    // never scrolls away (DECSTBM homes the cursor, hence save/restore).
+    process.stdout.write(`${SAVE_CURSOR}${ESC}[1;${rows - 1}r${RESTORE_CURSOR}`);
+  }
 
   const draw = () => {
     if (exited || !process.stdout.isTTY) {
@@ -43,6 +51,8 @@ export async function run() {
     const width = Math.max(1, process.stdout.columns ?? cols);
     const height = Math.max(2, process.stdout.rows ?? rows);
     const text = truncate(stripAnsi(hudLine), width - 1).padEnd(width - 1, " ");
+    // Row `height` sits below the child's scroll region (kept at 1..height-1 via
+    // clampScrollRegion), so an absolute write here never scrolls or duplicates.
     process.stdout.write(`${SAVE_CURSOR}${ESC}[${height};1H${ESC}[7m${text}${ESC}[0m${RESTORE_CURSOR}`);
   };
 
@@ -57,7 +67,14 @@ export async function run() {
   };
 
   child.onData((data) => {
-    process.stdout.write(data);
+    // Codex renders in a ratatui inline viewport and sets its own scroll region.
+    // Its explicit regions are <= the child's height so they pass through, but
+    // its "reset to full screen" (bare ESC[r) would unclamp the real terminal
+    // and let Codex's newlines scroll the HUD row into scrollback. Rewrite any
+    // reset/over-wide DECSTBM to the child's height, protecting the bottom row
+    // without disturbing Codex's own rendering.
+    const bottom = Math.max(1, (process.stdout.rows ?? rows) - 1);
+    process.stdout.write(clampScrollRegion(data, bottom));
     scheduleDraw();
   });
 
@@ -183,20 +200,45 @@ function candidateNames(command) {
 }
 
 function setupRawInput(child) {
+  let pending = "";
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(true);
   }
   process.stdin.resume();
   process.stdin.on("data", (data) => {
-    child.write(data.toString("binary"));
+    const stripped = stripBracketedPasteMarkers(pending + data.toString("utf8"));
+    pending = stripped.pending;
+    if (stripped.text) {
+      child.write(stripped.text);
+    }
   });
+}
+
+function stripBracketedPasteMarkers(input) {
+  let text = input
+    .replaceAll(BRACKETED_PASTE_START, "")
+    .replaceAll(BRACKETED_PASTE_END, "");
+
+  let pending = "";
+  const maxPrefix = Math.max(BRACKETED_PASTE_START.length, BRACKETED_PASTE_END.length) - 1;
+  const tailStart = Math.max(0, text.length - maxPrefix);
+  for (let i = tailStart; i < text.length; i += 1) {
+    const tail = text.slice(i);
+    if (BRACKETED_PASTE_START.startsWith(tail) || BRACKETED_PASTE_END.startsWith(tail)) {
+      pending = tail;
+      text = text.slice(0, i);
+      break;
+    }
+  }
+
+  return { text, pending };
 }
 
 function restoreTerminal() {
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(false);
   }
-  process.stdout.write(`${SHOW_CURSOR}${ESC}[0m\n`);
+  process.stdout.write(`${ESC}[r${DISABLE_BRACKETED_PASTE}${SHOW_CURSOR}${ESC}[0m\n`);
 }
 
 function truncate(text, width) {
@@ -211,6 +253,19 @@ function truncate(text, width) {
 
 function stripAnsi(text) {
   return text.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
+// Clamp DECSTBM scroll-region sequences (CSI Pt ; Pb r, incl. bare ESC[r) so the
+// bottom margin never exceeds `bottom` (the child's height). Bare/omitted params
+// mean "full screen", which we rewrite to the child height; explicit regions
+// already within range pass through unchanged. 'r' is the only CSI final byte
+// used here, so SGR/cursor moves are untouched.
+function clampScrollRegion(data, bottom) {
+  return data.replace(/\x1B\[(\d*)(?:;(\d*))?r/g, (_match, top, bot) => {
+    const t = top ? Number(top) : 1;
+    const b = bot ? Math.min(Number(bot), bottom) : bottom;
+    return `${ESC}[${t};${b}r`;
+  });
 }
 
 function helpText() {
