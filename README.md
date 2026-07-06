@@ -128,7 +128,7 @@ codex-hub
 CLI options:
 
 ```powershell
-codex-hub --codex-home "$HOME\.codex" --interval 2
+codex-hub --codex-home "$HOME\.codex" --interval 10
 ```
 
 Environment variables:

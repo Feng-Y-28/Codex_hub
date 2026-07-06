@@ -124,7 +124,7 @@ export async function run() {
 function parseArgs(argv) {
   const args = {
     codexHome: undefined,
-    intervalMs: 2000,
+    intervalMs: 10000,
     commandArgs: []
   };
 
@@ -275,7 +275,7 @@ Runs Codex inside a PTY and renders a usage HUD on the terminal bottom line.
 
 Options:
   --codex-home <path>  Read sessions from this Codex home
-  --interval <sec>     HUD refresh interval, default 2
+  --interval <sec>     HUD refresh interval, default 10
   --help              Show this help
 
 Environment:
