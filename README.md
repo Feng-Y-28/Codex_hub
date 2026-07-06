@@ -14,6 +14,12 @@ Codex Hub does not patch Codex and does not make network requests while
 rendering the HUD. It reads local Codex session JSONL files, finds the latest
 `token_count` event, and renders account usage plus session token totals.
 
+## Acknowledgements
+
+Codex Hub is inspired by the idea and workflow of `claude-hub`. This project is
+a Codex-focused implementation built as a learning exercise and a tribute to
+that work.
+
 ## Quick Start
 
 Requirements: Node.js 20+, npm, and an installed Codex CLI.
