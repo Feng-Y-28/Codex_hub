@@ -1,0 +1,30 @@
+{
+  "name": "codex-hub",
+  "version": "0.2.0",
+  "description": "Cross-platform Codex terminal HUD wrapper for context and usage percentages.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "codex-hub": "./bin/codex-hub.js",
+    "codex-hub-install": "./bin/codex-hub-install.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "plugins",
+    "scripts",
+    ".agents/plugins/marketplace.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node ./bin/codex-hub.js",
+    "check": "node --check ./bin/codex-hub.js && node --check ./bin/codex-hub-install.js && node --check ./src/index.js && node --check ./src/hud.js && node --check ./src/install-shim.js"
+  },
+  "dependencies": {
+    "node-pty": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
