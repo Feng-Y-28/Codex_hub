@@ -75,7 +75,6 @@ export async function run() {
     // without disturbing Codex's own rendering.
     const bottom = Math.max(1, (process.stdout.rows ?? rows) - 1);
     process.stdout.write(clampScrollRegion(data, bottom));
-    scheduleDraw();
   });
 
   child.onExit(({ exitCode }) => {
