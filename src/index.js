@@ -35,9 +35,10 @@ export async function run() {
   let hudLine = "Usage: waiting for Codex";
   let drawTimer = null;
   let pollTimer = null;
+  let cursorTimer = null;
 
   setupRawInput(child);
-  process.stdout.write(`${DISABLE_BRACKETED_PASTE}${HIDE_CURSOR}`);
+  process.stdout.write(`${DISABLE_BRACKETED_PASTE}`);
   if (process.stdout.isTTY) {
     // Confine scrolling to the child's rows so the HUD row at the bottom
     // never scrolls away (DECSTBM homes the cursor, hence save/restore).
@@ -74,13 +75,18 @@ export async function run() {
     // reset/over-wide DECSTBM to the child's height, protecting the bottom row
     // without disturbing Codex's own rendering.
     const bottom = Math.max(1, (process.stdout.rows ?? rows) - 1);
-    process.stdout.write(clampScrollRegion(data, bottom));
+    process.stdout.write(HIDE_CURSOR);
+    process.stdout.write(suppressCursorShow(clampScrollRegion(data, bottom)));
+    scheduleCursorShow();
   });
 
   child.onExit(({ exitCode }) => {
     exited = true;
     if (pollTimer) {
       clearInterval(pollTimer);
+    }
+    if (cursorTimer) {
+      clearTimeout(cursorTimer);
     }
     restoreTerminal();
     process.exit(exitCode ?? 0);
@@ -110,6 +116,9 @@ export async function run() {
       return;
     }
     exited = true;
+    if (cursorTimer) {
+      clearTimeout(cursorTimer);
+    }
     child.kill();
     restoreTerminal();
     process.exit(130);
@@ -118,6 +127,18 @@ export async function run() {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
   process.on("exit", restoreTerminal);
+
+  function scheduleCursorShow() {
+    if (cursorTimer) {
+      clearTimeout(cursorTimer);
+    }
+    cursorTimer = setTimeout(() => {
+      cursorTimer = null;
+      if (!exited) {
+        process.stdout.write(SHOW_CURSOR);
+      }
+    }, 150);
+  }
 }
 
 function parseArgs(argv) {
@@ -265,6 +286,10 @@ function clampScrollRegion(data, bottom) {
     const b = bot ? Math.min(Number(bot), bottom) : bottom;
     return `${ESC}[${t};${b}r`;
   });
+}
+
+function suppressCursorShow(data) {
+  return data.replaceAll(SHOW_CURSOR, "");
 }
 
 function helpText() {
