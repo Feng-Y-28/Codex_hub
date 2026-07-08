@@ -8,6 +8,7 @@ const ESC = "\x1b";
 const HIDE_CURSOR = `${ESC}[?25l`;
 const SHOW_CURSOR = `${ESC}[?25h`;
 const DISABLE_BRACKETED_PASTE = `${ESC}[?2004l`;
+const DISABLE_WIN32_INPUT_MODE = `${ESC}[?9001l`;
 const BRACKETED_PASTE_START = `${ESC}[200~`;
 const BRACKETED_PASTE_END = `${ESC}[201~`;
 const SAVE_CURSOR = `${ESC}7`;
@@ -77,7 +78,7 @@ export async function run() {
     // without disturbing Codex's own rendering.
     const bottom = Math.max(1, (process.stdout.rows ?? rows) - 1);
     process.stdout.write(HIDE_CURSOR);
-    process.stdout.write(suppressCursorShow(clampScrollRegion(data, bottom)));
+    process.stdout.write(prepareChildOutput(data, bottom));
     scheduleCursorShow();
   });
 
@@ -141,7 +142,7 @@ export async function run() {
       input.close();
       restoreTerminal({ clearHud: false, restoreInputMode: true });
       process.exit(exitCode);
-    }, 150);
+    }, 300);
   }
 
   function scheduleCursorShow() {
@@ -296,7 +297,7 @@ function restoreTerminal({ clearHud = true, restoreInputMode = true } = {}) {
   }
   const height = Math.max(1, process.stdout.rows ?? 24);
   const clearHudLine = clearHud && process.stdout.isTTY ? `${SAVE_CURSOR}${ESC}[${height};1H${ESC}[2K${RESTORE_CURSOR}` : "";
-  process.stdout.write(`${clearHudLine}${ESC}[r${DISABLE_BRACKETED_PASTE}${SHOW_CURSOR}${ESC}[0m\n`);
+  process.stdout.write(`${clearHudLine}${ESC}[r${DISABLE_WIN32_INPUT_MODE}${DISABLE_BRACKETED_PASTE}${SHOW_CURSOR}${ESC}[0m\n`);
 }
 
 function truncate(text, width) {
@@ -326,8 +327,16 @@ function clampScrollRegion(data, bottom) {
   });
 }
 
+function prepareChildOutput(data, bottom) {
+  return suppressWin32InputMode(suppressCursorShow(clampScrollRegion(data, bottom)));
+}
+
 function suppressCursorShow(data) {
   return data.replaceAll(SHOW_CURSOR, "");
+}
+
+function suppressWin32InputMode(data) {
+  return data.replaceAll(`${ESC}[?9001h`, "");
 }
 
 function helpText() {
