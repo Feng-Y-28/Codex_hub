@@ -36,8 +36,9 @@ export async function run() {
   let drawTimer = null;
   let pollTimer = null;
   let cursorTimer = null;
+  let finishing = false;
 
-  setupRawInput(child);
+  const input = setupRawInput(child);
   process.stdout.write(`${DISABLE_BRACKETED_PASTE}`);
   if (process.stdout.isTTY) {
     // Confine scrolling to the child's rows so the HUD row at the bottom
@@ -81,15 +82,7 @@ export async function run() {
   });
 
   child.onExit(({ exitCode }) => {
-    exited = true;
-    if (pollTimer) {
-      clearInterval(pollTimer);
-    }
-    if (cursorTimer) {
-      clearTimeout(cursorTimer);
-    }
-    restoreTerminal();
-    process.exit(exitCode ?? 0);
+    finish(exitCode ?? 0);
   });
 
   process.stdout.on("resize", () => {
@@ -112,21 +105,44 @@ export async function run() {
   pollTimer = setInterval(poll, args.intervalMs);
 
   const shutdown = () => {
-    if (exited) {
+    if (exited || finishing) {
       return;
     }
-    exited = true;
-    if (cursorTimer) {
-      clearTimeout(cursorTimer);
-    }
     child.kill();
-    restoreTerminal();
-    process.exit(130);
+    finish(130);
   };
 
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
-  process.on("exit", restoreTerminal);
+  process.on("exit", () => restoreTerminal({ clearHud: false }));
+
+  function finish(exitCode) {
+    if (finishing) {
+      return;
+    }
+    finishing = true;
+    exited = true;
+    if (pollTimer) {
+      clearInterval(pollTimer);
+    }
+    if (drawTimer) {
+      clearTimeout(drawTimer);
+    }
+    if (cursorTimer) {
+      clearTimeout(cursorTimer);
+    }
+
+    input.discard();
+    restoreTerminal({ clearHud: true, restoreInputMode: false });
+
+    // Some terminals answer Codex capability queries asynchronously. In Cygwin
+    // those bytes can otherwise land in the parent shell after Codex exits.
+    setTimeout(() => {
+      input.close();
+      restoreTerminal({ clearHud: false, restoreInputMode: true });
+      process.exit(exitCode);
+    }, 150);
+  }
 
   function scheduleCursorShow() {
     if (cursorTimer) {
@@ -221,17 +237,37 @@ function candidateNames(command) {
 
 function setupRawInput(child) {
   let pending = "";
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(true);
-  }
-  process.stdin.resume();
-  process.stdin.on("data", (data) => {
+  let discard = false;
+  const onData = (data) => {
+    if (discard) {
+      return;
+    }
     const stripped = stripBracketedPasteMarkers(pending + data.toString("utf8"));
     pending = stripped.pending;
     if (stripped.text) {
       child.write(stripped.text);
     }
-  });
+  };
+
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(true);
+  }
+  process.stdin.resume();
+  process.stdin.on("data", onData);
+
+  return {
+    discard() {
+      discard = true;
+      pending = "";
+    },
+    close() {
+      process.stdin.off("data", onData);
+      if (process.stdin.isTTY) {
+        process.stdin.setRawMode(false);
+      }
+      process.stdin.pause();
+    }
+  };
 }
 
 function stripBracketedPasteMarkers(input) {
@@ -254,11 +290,13 @@ function stripBracketedPasteMarkers(input) {
   return { text, pending };
 }
 
-function restoreTerminal() {
-  if (process.stdin.isTTY) {
+function restoreTerminal({ clearHud = true, restoreInputMode = true } = {}) {
+  if (restoreInputMode && process.stdin.isTTY) {
     process.stdin.setRawMode(false);
   }
-  process.stdout.write(`${ESC}[r${DISABLE_BRACKETED_PASTE}${SHOW_CURSOR}${ESC}[0m\n`);
+  const height = Math.max(1, process.stdout.rows ?? 24);
+  const clearHudLine = clearHud && process.stdout.isTTY ? `${SAVE_CURSOR}${ESC}[${height};1H${ESC}[2K${RESTORE_CURSOR}` : "";
+  process.stdout.write(`${clearHudLine}${ESC}[r${DISABLE_BRACKETED_PASTE}${SHOW_CURSOR}${ESC}[0m\n`);
 }
 
 function truncate(text, width) {
